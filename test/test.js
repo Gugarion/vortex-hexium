@@ -8,7 +8,11 @@ const assert = require("assert");
 const dispatched = [];
 const state = { persistent: { mods: { valheim: {} }, downloads: { files: {} } } };
 const mockVortex = {
-  actions: { setModAttribute: (gameId, modId, key, value) => ({ type: "SET_MOD_ATTRIBUTE", gameId, modId, key, value }) },
+  actions: {
+    setModAttribute: (gameId, modId, key, value) => ({ type: "SET_MOD_ATTRIBUTE", gameId, modId, key, value }),
+    setModType: (gameId, modId, modType) => ({ type: "SET_MOD_TYPE", gameId, modId, modType }),
+  },
+  Icon: () => null,
   selectors: { activeGameId: () => "valheim", downloadPathForGame: () => process.argv[2] },
   util: { opn: async (url) => { opened.push(url); } },
   log: () => {},
@@ -34,7 +38,8 @@ const api = {
     dispatch: (a) => {
       dispatched.push(a);
       const mod = state.persistent.mods[a.gameId][a.modId];
-      if (mod) mod.attributes[a.key] = a.value;
+      if (mod && a.type === "SET_MOD_ATTRIBUTE") mod.attributes[a.key] = a.value;
+      if (mod && a.type === "SET_MOD_TYPE") mod.type = a.modType;
     },
   },
   sendNotification: (n) => notifications.push(n),
@@ -44,16 +49,19 @@ const api = {
     on: (ev, fn) => { (listeners[ev] ??= []).push(fn); },
     emit: (ev, ...args) => {
       emitted.push([ev, ...args]);
-      const cb = args[ev === "start-download" ? 3 : 2];
+      const cb = args[ev === "start-download" ? 3 : ev === "start-install-download" ? 2 : ev === "purge-mods" ? 1 : 0];
       if (ev === "start-download") cb(null, "dl-1");
-      if (ev === "start-install-download") cb(null);
+      if (ev === "start-install-download" || ev === "purge-mods" || ev === "deploy-mods") cb(null);
       for (const fn of listeners[ev] ?? []) fn(...args);
     },
   },
 };
-const registered = { actions: [], sources: [], extractors: [], once: [] };
+const registered = { actions: [], sources: [], extractors: [], once: [], installers: [], modTypes: [], pages: [] };
 const context = {
   api,
+  registerInstaller: (...a) => registered.installers.push(a),
+  registerModType: (...a) => registered.modTypes.push(a),
+  registerMainPage: (...a) => registered.pages.push(a),
   registerModSource: (...a) => registered.sources.push(a),
   registerAttributeExtractor: (p, fn) => registered.extractors.push(fn),
   registerAction: (...a) => registered.actions.push(a),
@@ -145,5 +153,102 @@ const context = {
   for (const fn of listeners["open-mod-page"]) fn("valheim", "Smoothbrain/CreatureLevelAndLootControl", "hexium");
   assert.deepStrictEqual(opened, ["https://valheim.hexium.gg/mods/Smoothbrain/CreatureLevelAndLootControl"]);
   console.log("open page ok");
+
+  // ---- layout ----
+  const L = require("../layout.js");
+  const cllcFiles = ["CreatureLevelControl.dll", "icon.png", "Languages.zip", "README.md", "manifest.json"];
+  assert.deepStrictEqual(L.buildInstructions(cllcFiles).map((i) => i.destination),
+    ["BepInEx/plugins/CreatureLevelControl/CreatureLevelControl.dll", "BepInEx/plugins/CreatureLevelControl/Languages.zip"]);
+  assert.deepStrictEqual(L.buildInstructions(["manifest.json", "plugins/Foo.dll", "config/foo.cfg", "patchers/P.dll"]).map((i) => i.destination),
+    ["BepInEx/plugins/Foo.dll", "BepInEx/config/foo.cfg", "BepInEx/patchers/P.dll"]);
+  // plugins/<rest> next to a root DLL joins its folder (More World Locations style)
+  assert.deepStrictEqual(L.buildInstructions(["manifest.json", "MWL.dll", "plugins/Bundles/a.bundle"]).map((i) => i.destination),
+    ["BepInEx/plugins/MWL/MWL.dll", "BepInEx/plugins/MWL/Bundles/a.bundle"]);
+  // single container folder stripped
+  assert.deepStrictEqual(L.buildInstructions(["Pkg/manifest.json", "Pkg/Pkg.dll", "Pkg/README.md"]).map((i) => i.destination),
+    ["BepInEx/plugins/Pkg/Pkg.dll"]);
+  assert.strictEqual(L.canPlace(["manifest.json", "winhttp.dll", "BepInEx/core/BepInEx.dll"]), false);
+  assert.strictEqual(L.canPlace(["Foo.dll"]), false); // no manifest
+  console.log("layout ok");
+
+  // ---- installer ----
+  const [instId, instPrio, test, install] = registered.installers[0];
+  assert.strictEqual(instId, "hexium-package");
+  assert.ok(instPrio < 20, "must run before the Thunderstore installer (20)");
+  const dir = process.argv[2];
+  state.persistent.downloads.files = {
+    ours: { localPath: "Ours-Mod-1.0.0.zip", modInfo: { source: "hexium" } },
+    ts: { localPath: "Ts-Mod-1.0.0.zip", modInfo: { source: "thunderstore" } },
+    manual: { localPath: "5.0.6.zip", modInfo: {} },
+  };
+  assert.strictEqual((await test(cllcFiles, "valheim", path.join(dir, "Ours-Mod-1.0.0.zip"))).supported, true);
+  assert.strictEqual((await test(cllcFiles, "valheim", path.join(dir, "Ts-Mod-1.0.0.zip"))).supported, false);
+  assert.strictEqual((await test(cllcFiles, "valheim", path.join(dir, "5.0.6.zip"))).supported, true); // a Hexium release dropped in by hand
+  assert.strictEqual((await test(cllcFiles, "skyrimse", path.join(dir, "Ours-Mod-1.0.0.zip"))).supported, false);
+  const result = await install(cllcFiles, "C:/x", "valheim");
+  assert.deepStrictEqual(result.instructions.at(-1), { type: "setmodtype", value: "hexium-valheim" });
+  assert.strictEqual(registered.modTypes[0][0], "hexium-valheim");
+  assert.strictEqual(registered.modTypes[0][5]?.name, "Hexium");
+  console.log("installer ok");
+
+  // ---- moving Thunderstore-typed Hexium mods to our type: purge, retype, deploy ----
+  state.persistent.mods.valheim["old-cllc"].type = "thunderstore-valheim";
+  state.persistent.mods.valheim["ts-mod"].type = "thunderstore-valheim";
+  assert.deepStrictEqual(T.strayTypeMods(api, "valheim"), ["old-cllc"]);
+  emitted.length = 0;
+  await T.adoptTypes(api, "valheim");
+  assert.deepStrictEqual(emitted.map((e) => e[0]), ["purge-mods", "deploy-mods"]);
+  assert.strictEqual(state.persistent.mods.valheim["old-cllc"].type, "hexium-valheim");
+  assert.strictEqual(state.persistent.mods.valheim["ts-mod"].type, "thunderstore-valheim");
+  console.log("type move ok");
+
+  // ---- browse page, rendered with React 18 (Vortex's version) ----
+  const React = require("react");
+  const TR = require("react-test-renderer");
+  const [, title, Page, opts] = registered.pages[0];
+  assert.strictEqual(title, "Browse Hexium");
+  const props = opts.props();
+  const installs = [];
+  props.install = async (...a) => { installs.push(a); };
+  let r;
+  await TR.act(async () => { r = TR.create(React.createElement(Page, props)); });
+  for (let i = 0; i < 100 && r.root.findAll((n) => n.type === "article").length === 0; i++) {
+    await TR.act(() => new Promise((res) => setTimeout(res, 100)));
+  }
+  const text = (node) => (typeof node === "string" ? node : (node.children ?? []).map(text).join(""));
+  const cards = () => r.root.findAll((n) => n.type === "article");
+  assert.strictEqual(cards().length, 20);
+  const countLine = r.root.findAll((n) => n.type === "span" && /mods on valheim\.hexium\.gg/.test(text(n)))[0];
+  console.log("page:", text(countLine), "| first:", text(cards()[0].findAll((n) => n.props.className?.includes("font-semibold"))[0]));
+  // search
+  const search = r.root.find((n) => n.type === "input" && n.props.type === "search");
+  await TR.act(async () => search.props.onChange({ target: { value: "CreatureLevelAndLootControl" } }));
+  const cllcCard = () => cards().find((c) => text(c).startsWith("CreatureLevelAndLootControlSmoothbrain"));
+  console.log("search hits:", cards().map((c) => text(c).slice(0, 40)).join(" | "));
+  const cardText = text(cllcCard());
+  assert.ok(cardText.includes("Smoothbrain") && cardText.includes("5.0.6"), cardText);
+  // CLLC is "installed" twice in the mocked state: manual-cllc 5.0.6 -> Installed
+  assert.ok(cardText.includes("Installed"), cardText);
+  // a mod that isn't installed -> Install button that calls install(game, owner, name, version)
+  await TR.act(async () => search.props.onChange({ target: { value: "Jewelcrafting" } }));
+  const jc = cards().find((c) => text(c).includes("Smoothbrain"));
+  const btnInstall = jc.find((n) => n.type === "button" && text(n) === "Install");
+  await TR.act(async () => btnInstall.props.onClick());
+  assert.strictEqual(installs[0][1], "Smoothbrain");
+  assert.strictEqual(installs[0][2], "Jewelcrafting");
+  assert.ok(text(jc).includes("Installed") || text(cards().find((c) => text(c).includes("Smoothbrain"))).includes("Installed"));
+  // an older installed version -> Update button
+  state.persistent.mods.valheim["manual-cllc"].attributes.fileId = "5.0.0";
+  state.persistent.mods.valheim["old-cllc"].attributes.fileId = "5.0.0";
+  await TR.act(async () => { r.update(React.createElement(Page, opts.props())); });
+  const s2 = r.root.find((n) => n.type === "input" && n.props.type === "search");
+  await TR.act(async () => s2.props.onChange({ target: { value: "CreatureLevelAndLootControl" } }));
+  assert.ok(text(cllcCard()).includes("Update to 5.0.6"), text(cllcCard()));
+  // category filter
+  const cat = r.root.findAll((n) => n.type === "select")[0];
+  await TR.act(async () => s2.props.onChange({ target: { value: "" } }));
+  await TR.act(async () => cat.props.onChange({ target: { value: "Modpack" } }));
+  console.log("category Modpack:", text(r.root.findAll((n) => n.type === "span" && /mods on/.test(text(n)))[0]));
+  console.log("page ok");
   console.log("ALL OK");
 })().catch((e) => { console.error("FAIL", e); process.exit(1); });
