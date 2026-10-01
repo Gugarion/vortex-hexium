@@ -6,7 +6,13 @@ const path = require("path");
 const assert = require("assert");
 
 const dispatched = [];
-const state = { persistent: { mods: { valheim: {} }, downloads: { files: {} } } };
+const state = {
+  persistent: { mods: { valheim: {}, sunkenland: {} }, downloads: { files: {} } },
+  session: { gameMode: { known: [
+    { id: "valheim", name: "Valheim" }, { id: "burglingnomes", name: "Burglin' Gnomes" }, { id: "sunkenland", name: "Sunkenland" },
+    { id: "kenshi", name: "Kenshi" }, { id: "skyrimse", name: "Skyrim Special Edition" }, { id: "survivalfoy", name: "Survival: Fountain of Youth" },
+  ] } },
+};
 const mockVortex = {
   actions: {
     setModAttribute: (gameId, modId, key, value) => ({ type: "SET_MOD_ATTRIBUTE", gameId, modId, key, value }),
@@ -259,5 +265,41 @@ const context = {
   assert.ok(text(r.root.find((n) => n.type === "button" && n.props.title === "Sort")).includes("Name"));
   console.log("category Modpack:", text(r.root.findAll((n) => n.type === "span" && /mods on/.test(text(n)))[0]));
   console.log("page ok");
+
+  // ---- other Hexium games ----
+  await require("../games.js").refresh(async (url) => JSON.parse((await new Promise((res, rej) => require("https").get(url, (r) => {
+    let b = ""; r.on("data", (c) => (b += c)); r.on("end", () => res(b)); }).on("error", rej)))));
+  assert.strictEqual(T.communityOf("valheim"), "valheim");
+  assert.strictEqual(T.communityOf("burglingnomes"), "burglin-gnomes"); // id without dashes
+  assert.strictEqual(T.communityOf("survivalfoy"), "sfoy");             // by name
+  assert.strictEqual(T.communityOf("sunkenland"), "sunkenland");
+  assert.strictEqual(T.communityOf("kenshi"), undefined);               // not BepInEx
+  assert.strictEqual(T.communityOf("skyrimse"), undefined);
+  assert.strictEqual(T.modTypeFor("valheim"), "hexium-valheim");
+  assert.strictEqual(T.modTypeFor("sunkenland"), "hexium-bepinex");
+  assert.strictEqual((await install(cllcFiles, "C:/x", "sunkenland")).instructions.at(-1).value, "hexium-bepinex");
+  const sbt = registered.modTypes.find((m) => m[0] === "hexium-bepinex");
+  assert.strictEqual(sbt[2]("sunkenland"), true);
+  assert.strictEqual(sbt[2]("valheim"), false);
+  assert.strictEqual(sbt[2]("skyrimse"), false);
+  // update check against sunkenland.hexium.gg
+  const sl = (await (await fetch("https://sunkenland.hexium.gg/api/experimental/package-index/")).text()).split(/\r?\n/).filter(Boolean).map(JSON.parse)
+    .find((p) => !/BepInExPack/i.test(p.name));
+  state.persistent.mods.sunkenland["sl-mod"] = { id: "sl-mod", attributes: T.linkAttributes("sunkenland", { namespace: sl.namespace, name: sl.name, version: "0.0.1" }) };
+  assert.strictEqual(state.persistent.mods.sunkenland["sl-mod"].attributes.homepage, `https://sunkenland.hexium.gg/mods/${sl.namespace}/${sl.name}`);
+  assert.deepStrictEqual(await asyncListeners["check-mods-version"]("sunkenland", state.persistent.mods.sunkenland), ["sl-mod"]);
+  assert.strictEqual(state.persistent.mods.sunkenland["sl-mod"].attributes.newestVersion, sl.version_number);
+  // its update downloads from Hexium with the game recorded for the attribute extractor
+  emitted.length = 0;
+  for (const fn of listeners["mod-update"]) fn("sunkenland", `${sl.namespace}/${sl.name}`, sl.version_number, "hexium");
+  await new Promise((r) => setTimeout(r, 3000));
+  const sdl = emitted.find((e) => e[0] === "start-download");
+  assert.strictEqual(sdl[2].game, "sunkenland");
+  assert.strictEqual(sdl[2].hexium.game, "sunkenland");
+  const sattrs = await registered.extractors[0]({ download: { modInfo: sdl[2] } });
+  assert.strictEqual(sattrs.homepage, `https://sunkenland.hexium.gg/mods/${sl.namespace}/${sl.name}`);
+  // the Thunderstore-type move is Valheim only
+  assert.deepStrictEqual(T.strayTypeMods(api, "sunkenland"), []);
+  console.log("other games ok:", sl.namespace + "/" + sl.name, sl.version_number);
   console.log("ALL OK");
 })().catch((e) => { console.error("FAIL", e); process.exit(1); });

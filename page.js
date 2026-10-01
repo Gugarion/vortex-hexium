@@ -24,7 +24,7 @@ function view(p) {
     downloads: (p.versions ?? []).reduce((n, x) => n + (x.downloads ?? 0), 0),
     rating: p.rating_score ?? 0, updated: Date.parse(p.date_updated ?? "") || 0, created: Date.parse(p.date_created ?? "") || 0,
     categories: p.categories ?? [], deprecated: p.is_deprecated === true, nsfw: p.has_nsfw_content === true, pinned: p.is_pinned === true,
-    dependencies: (v?.dependencies ?? []).filter((d) => !/^denikson-BepInExPack_Valheim-/i.test(d)),
+    dependencies: (v?.dependencies ?? []).filter((d) => !/-BepInExPack[^-]*-[\d.]+$/i.test(d)),
   };
 }
 
@@ -78,9 +78,10 @@ function Dropdown({ value, options, onChange, title }) {
 }
 
 function HexiumPage(props) {
-  const { getGameId, communityName, loadPackages, getInstalled, install, compareVersions, openUrl } = props;
+  const { getGameId, communityOf, communityName, loadPackages, getInstalled, install, compareVersions, openUrl } = props;
   const gameId = getGameId();
-  const community = gameId === undefined ? undefined : communityName(gameId);
+  const community = gameId === undefined ? undefined : communityOf(gameId);
+  const gameLabel = gameId === undefined ? undefined : communityName(gameId);
   const [all, setAll] = React.useState([]);
   const [loading, setLoading] = React.useState(false);
   const [error, setError] = React.useState();
@@ -111,7 +112,7 @@ function HexiumPage(props) {
   if (community === undefined) {
     return h("section", { className: "h-full overflow-y-auto p-6" },
       h("h1", null, "Hexium"),
-      h("p", null, gameId === undefined ? "Select a game first." : "Hexium has no mods for this game (supported: Valheim)."));
+      h("p", null, gameId === undefined ? "Select a game first." : "Hexium has no BepInEx mods for this game. Supported: every Hexium game whose mods use BepInEx (Valheim, Sunkenland, Burglin' Gnomes, ...)."));
   }
 
   const installed = getInstalled(gameId);
@@ -196,7 +197,7 @@ function HexiumPage(props) {
         h("label", { className: "flex items-center gap-x-1 text-body-sm text-neutral-moderate" },
           h("input", { type: "checkbox", checked: showDeprecated, onChange: (e) => setShowDeprecated(e.target.checked) }), "Show deprecated"),
         h("button", { type: "button", className: iconBtn, title: "Refresh", onClick: () => setRefresh((r) => r + 1) }, icon("refresh")),
-        h("span", { className: "text-translucent-moderate text-body-sm" }, `${shown.length.toLocaleString("en-US")} mods on ${community}.hexium.gg`)),
+        h("span", { className: "text-translucent-moderate text-body-sm" }, `${shown.length.toLocaleString("en-US")} ${gameLabel} mods on ${community}.hexium.gg`)),
       loading ? h("div", { className: "p-5 text-center text-neutral-subdued text-body-sm" }, "Loading Hexium mods …") : null,
       error !== undefined ? h("div", { className: "p-5 text-center text-danger-strong text-body-sm", role: "alert" }, `Could not load Hexium's mod list: ${error}`) : null,
       installError !== undefined ? h("div", { className: "p-2.5 text-danger-strong text-body-sm", role: "alert" }, `Installation failed: ${installError}`) : null,

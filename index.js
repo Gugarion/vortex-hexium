@@ -8,6 +8,7 @@ const path = require("path");
 const fs = require("fs");
 const zlib = require("zlib");
 const layout = require("./layout");
+const games = require("./games");
 const { HexiumPage } = require("./page");
 
 let vortex;
@@ -16,16 +17,24 @@ const { actions, selectors, util } = vortex;
 const log = (level, message, meta) => { try { vortex.log(level, `hexium: ${message}`, meta); } catch { /* no logger */ } };
 
 const SOURCE = "hexium";
-const MOD_TYPE = "hexium-valheim";
-// The patched Thunderstore extension's type for the same layout (game root); Hexium mods it installed are moved to ours.
+// Mod types: Valheim keeps the id 1.x installs already carry; every other Hexium game shares one.
+const MOD_TYPE_VALHEIM = "hexium-valheim";
+const MOD_TYPE_BEPINEX = "hexium-bepinex";
+const modTypeFor = (gameId) => (gameId === "valheim" ? MOD_TYPE_VALHEIM : MOD_TYPE_BEPINEX);
+// The Thunderstore extension's Valheim type (same layout, game root); Hexium mods it installed are moved to ours.
 const THUNDERSTORE_TYPE = "thunderstore-valheim";
 // Hexagon outline (MDI hexagon-outline) with a serif H inside, like Hexium's own icon.
 const HEXAGON_MDI = "M21,16.5C21,16.88 20.79,17.21 20.47,17.38L12.57,21.82C12.41,21.94 12.21,22 12,22C11.79,22 11.59,21.94 11.43,21.82L3.53,17.38C3.21,17.21 3,16.88 3,16.5V7.5C3,7.12 3.21,6.79 3.53,6.62L11.43,2.18C11.59,2.06 11.79,2 12,2C12.21,2 12.41,2.06 12.57,2.18L20.47,6.62C20.79,6.79 21,7.12 21,7.5V16.5M12,4.15L5,8.09V15.91L12,19.85L19,15.91V8.09L12,4.15ZM7.4,7.5 L11,7.5 L11,8.7 L10.4,8.7 L10.4,11 L13.6,11 L13.6,8.7 L13,8.7 L13,7.5 L16.6,7.5 L16.6,8.7 L16,8.7 L16,15.3 L16.6,15.3 L16.6,16.5 L13,16.5 L13,15.3 L13.6,15.3 L13.6,13 L10.4,13 L10.4,15.3 L11,15.3 L11,16.5 L7.4,16.5 L7.4,15.3 L8,15.3 L8,8.7 L7.4,8.7Z";
-// Vortex game id -> Hexium community subdomain (<community>.hexium.gg)
-const COMMUNITIES = { valheim: "valheim" };
-const UA = "Vortex-Hexium/1.1.0";
+// Set in main(); lets communityOf read Vortex's game names.
+let apiRef;
+const UA = "Vortex-Hexium/1.2.0 (+https://github.com/Gugarion/vortex-hexium)";
 
-const communityOf = (gameId) => COMMUNITIES[gameId];
+const vortexGameName = (gameId) => {
+  try { return apiRef?.getState().session?.gameMode?.known?.find((g) => g.id === gameId)?.name; } catch { return undefined; }
+};
+// Hexium community (subdomain) of a Vortex game, undefined if Hexium has none we can install for.
+const communityOf = (gameId) => games.communityFor(gameId, vortexGameName(gameId))?.identifier;
+const communityName = (gameId) => games.communityFor(gameId, vortexGameName(gameId))?.name;
 const baseUrl = (gameId) => `https://${communityOf(gameId)}.hexium.gg`;
 const pageUrl = (gameId, namespace, name) => `${baseUrl(gameId)}/mods/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}`;
 
@@ -193,7 +202,7 @@ function linkAttributes(gameId, info) {
     version: info.version,
     author: info.namespace,
     homepage: pageUrl(gameId, info.namespace, info.name),
-    hexium: { community: communityOf(gameId), namespace: info.namespace, name: info.name, version: info.version },
+    hexium: { game: gameId, community: communityOf(gameId), namespace: info.namespace, name: info.name, version: info.version },
     ...(info.description ? { shortDescription: info.description } : {}),
     ...(info.icon ? { pictureUrl: info.icon } : {}),
   };
@@ -237,12 +246,12 @@ async function installFromHexium(api, gameId, ref) {
       fileName,
       ids: { modId, fileId: v.version_number },
       meta: { details: { modId, fileId: v.version_number } },
-      hexium: { community: communityOf(gameId), ...info },
+      hexium: { game: gameId, community: communityOf(gameId), ...info },
     }, fileName, (err, id) => (err ? reject(err) : id === undefined ? reject(new Error("Vortex returned no download id")) : resolve(id)),
     "never", { allowInstall: false });
   });
   await emitAsync(api, "start-install-download", downloadId, true);
-  const deps = (v.dependencies ?? []).filter((d) => !/^denikson-BepInExPack_Valheim-/i.test(d));
+  const deps = (v.dependencies ?? []).filter((d) => !/-BepInExPack[^-]*-[\d.]+$/i.test(d));
   notify(api, "success", `${v.name} ${v.version_number} installed from Hexium.` +
     (deps.length ? ` It also needs: ${deps.join(", ")}` : ""), `hexium-installed-${modId}`, deps.length ? 15000 : 6000);
 }
@@ -407,6 +416,7 @@ function gameRoot(api, gameId) {
 // Hexium mods the Thunderstore extension installed before this one existed (same layout, other type).
 function strayTypeMods(api, gameId) {
   const mods = modsOf(api, gameId);
+  if (gameId !== "valheim") return [];
   return Object.keys(mods).filter((id) => isHexium(mods[id]) && mods[id].type === THUNDERSTORE_TYPE);
 }
 
@@ -416,7 +426,7 @@ async function adoptTypes(api, gameId) {
   // Purge first: both types deploy to the game folder, and swapping a mod between them in one deployment
   // could let the old type remove files the new type just linked.
   await emitAsync(api, "purge-mods", false);
-  for (const id of ids) api.store.dispatch(actions.setModType(gameId, id, MOD_TYPE));
+  for (const id of ids) api.store.dispatch(actions.setModType(gameId, id, MOD_TYPE_VALHEIM));
   await new Promise((resolve, reject) => api.events.emit("deploy-mods", (err) => (err ? reject(err) : resolve())));
   notify(api, "success", `Moved ${ids.length} Hexium mod(s) to the Hexium mod type and redeployed.`, "hexium-adopted");
 }
@@ -444,9 +454,13 @@ function offerAdoption(api, gameId) {
 
 function main(context) {
   const api = context.api;
+  apiRef = api;
   const forActiveGame = () => communityOf(activeGame(api)) !== undefined;
 
-  context.registerModSource(SOURCE, "Hexium", () => util.opn(`${baseUrl(activeGame(api) ?? "valheim")}/`).catch(() => undefined), {
+  context.registerModSource(SOURCE, "Hexium", () => {
+    const g = activeGame(api);
+    util.opn(communityOf(g) ? `${baseUrl(g)}/` : "https://hexium.gg/").catch(() => undefined);
+  }, {
     condition: forActiveGame,
   });
 
@@ -454,16 +468,18 @@ function main(context) {
   context.registerAttributeExtractor(150, async (modInfo) => {
     const h = modInfo?.download?.modInfo?.hexium;
     if (!h || typeof h.namespace !== "string" || typeof h.name !== "string" || typeof h.version !== "string") return {};
-    const gameId = Object.keys(COMMUNITIES).find((g) => COMMUNITIES[g] === h.community) ?? "valheim";
+    const gameId = typeof h.game === "string" ? h.game : modInfo?.download?.modInfo?.game ?? "valheim";
     return { ...linkAttributes(gameId, h), name: h.name, modName: h.name, logicalFileName: `${h.namespace}/${h.name}` };
   });
 
   // Before the Thunderstore extension's installer (20), which takes any Thunderstore-format zip.
   context.registerInstaller("hexium-package", 15,
     (files, gameId, archivePath) => testArchive(api, files, gameId, archivePath),
-    async (files) => ({ instructions: [...layout.buildInstructions(files), { type: "setmodtype", value: MOD_TYPE }] }));
+    async (files, destinationPath, gameId) => ({ instructions: [...layout.buildInstructions(files), { type: "setmodtype", value: modTypeFor(gameId) }] }));
 
-  context.registerModType(MOD_TYPE, 25, (gameId) => communityOf(gameId) !== undefined,
+  context.registerModType(MOD_TYPE_VALHEIM, 25, (gameId) => gameId === "valheim",
+    (game) => gameRoot(api, game?.id ?? activeGame(api)), () => Promise.resolve(false), { name: "Hexium" });
+  context.registerModType(MOD_TYPE_BEPINEX, 25, (gameId) => gameId !== "valheim" && communityOf(gameId) !== undefined,
     (game) => gameRoot(api, game?.id ?? activeGame(api)), () => Promise.resolve(false), { name: "Hexium" });
 
   context.registerMainPage("hexium", "Browse Hexium", HexiumPage, {
@@ -473,7 +489,8 @@ function main(context) {
     visible: forActiveGame,
     props: () => ({
       getGameId: () => activeGame(api),
-      communityName: communityOf,
+      communityOf,
+      communityName,
       loadPackages: (gameId, fresh) => apiListing(gameId, fresh),
       getInstalled: (gameId) => {
         const mods = modsOf(api, gameId);
@@ -501,6 +518,7 @@ function main(context) {
     (ids) => forActiveGame() && ids.every((id) => isHexium(modsOf(api, activeGame(api))[id])));
 
   context.once(() => {
+    void games.refresh(getJson);
     api.onAsync("check-mods-version", (gameId, mods) => checkUpdates(api, gameId, mods));
 
     api.events.on("mod-update", (gameId, modId, fileId, source) => {
@@ -533,5 +551,5 @@ function main(context) {
 
 module.exports = {
   default: main,
-  _test: { parseRef, compareVersions, readManifest, checkUpdates, matchArchive, installFromHexium, autoLink, linkAttributes, testArchive, apiListing, strayTypeMods, adoptTypes },
+  _test: { modTypeFor, communityOf, parseRef, compareVersions, readManifest, checkUpdates, matchArchive, installFromHexium, autoLink, linkAttributes, testArchive, apiListing, strayTypeMods, adoptTypes },
 };
