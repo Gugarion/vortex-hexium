@@ -45,6 +45,38 @@ const btn = (kind) => `nxm-button nxm-button-${kind} nxm-button-sm`;
 const iconBtn = "nxm-button nxm-button-neutral nxm-button-moderate nxm-button-icon-only";
 const icon = (name) => h("span", { className: "nxm-button-icon" }, h(Icon, { name, className: "size-4" }));
 
+// Vortex-themed dropdown (same classes as the Thunderstore page's sort picker). Native <select> lists are
+// drawn by Chromium with a white background while Vortex's theme keeps the text white.
+function Dropdown({ value, options, onChange, title }) {
+  const [open, setOpen] = React.useState(false);
+  const ref = React.useRef(null);
+  React.useEffect(() => {
+    if (!open || typeof document === "undefined") return undefined;
+    const close = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
+    const esc = (e) => { if (e.key === "Escape") setOpen(false); };
+    document.addEventListener("mousedown", close);
+    document.addEventListener("keydown", esc);
+    return () => { document.removeEventListener("mousedown", close); document.removeEventListener("keydown", esc); };
+  }, [open]);
+  const current = options.find((o) => o.value === value) ?? options[0];
+  return h("div", { className: "nxm-dropdown relative", ref },
+    h("button", {
+      type: "button", title, "aria-haspopup": "listbox", "aria-expanded": open,
+      className: "nxm-button nxm-button-neutral nxm-button-moderate nxm-button-sm", onClick: () => setOpen(!open),
+    }, h("span", null, current?.label ?? ""), icon("sort-down")),
+    open
+      ? h("div", {
+        role: "listbox", "aria-label": title, className: "nxm-dropdown-items absolute left-0 top-full z-10 mt-1",
+        style: { maxHeight: "24rem", overflowY: "auto" },
+      }, ...options.map((o) => h("button", {
+        key: o.value, type: "button", role: "option", "aria-selected": o.value === value,
+        className: `nxm-dropdown-item ${o.value === value ? "nxm-dropdown-item-active" : ""}`,
+        onClick: () => { onChange(o.value); setOpen(false); },
+      }, h("span", { className: "nxm-dropdown-item-label" }, o.label),
+      o.value === value ? h(Icon, { name: "checkbox-checked", className: "ml-auto size-4" }) : null)))
+      : null);
+}
+
 function HexiumPage(props) {
   const { getGameId, communityName, loadPackages, getInstalled, install, compareVersions, openUrl } = props;
   const gameId = getGameId();
@@ -158,10 +190,9 @@ function HexiumPage(props) {
     h("div", { className: "space-y-3 p-6" },
       h("div", { className: "flex flex-wrap items-center gap-2" },
         h("input", { type: "search", value: query, placeholder: "Search Hexium mods...", onChange: (e) => setQuery(e.target.value), className: "nxm-input max-w-60" }),
-        h("select", { value: category, onChange: (e) => setCategory(e.target.value), className: "nxm-input max-w-60", title: "Category" },
-          h("option", { value: "" }, "All categories"), ...categories.map((c) => h("option", { key: c, value: c }, c))),
-        h("select", { value: sort, onChange: (e) => setSort(e.target.value), className: "nxm-input max-w-48", title: "Sort" },
-          ...SORTS.map((s) => h("option", { key: s.value, value: s.value }, s.label))),
+        h(Dropdown, { title: "Category", value: category, onChange: setCategory,
+          options: [{ value: "", label: "All categories" }, ...categories.map((c) => ({ value: c, label: c }))] }),
+        h(Dropdown, { title: "Sort", value: sort, onChange: setSort, options: SORTS }),
         h("label", { className: "flex items-center gap-x-1 text-body-sm text-neutral-moderate" },
           h("input", { type: "checkbox", checked: showDeprecated, onChange: (e) => setShowDeprecated(e.target.checked) }), "Show deprecated"),
         h("button", { type: "button", className: iconBtn, title: "Refresh", onClick: () => setRefresh((r) => r + 1) }, icon("refresh")),
@@ -187,4 +218,4 @@ function HexiumPage(props) {
         : null));
 }
 
-module.exports = { HexiumPage, view };
+module.exports = { HexiumPage, Dropdown, view };

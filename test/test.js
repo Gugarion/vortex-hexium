@@ -245,9 +245,18 @@ const context = {
   await TR.act(async () => s2.props.onChange({ target: { value: "CreatureLevelAndLootControl" } }));
   assert.ok(text(cllcCard()).includes("Update to 5.0.6"), text(cllcCard()));
   // category filter
-  const cat = r.root.findAll((n) => n.type === "select")[0];
+  assert.strictEqual(r.root.findAll((n) => n.type === "select").length, 0); // native selects are unreadable in Vortex's theme
   await TR.act(async () => s2.props.onChange({ target: { value: "" } }));
-  await TR.act(async () => cat.props.onChange({ target: { value: "Modpack" } }));
+  const catButton = r.root.find((n) => n.type === "button" && n.props.title === "Category");
+  await TR.act(async () => catButton.props.onClick());
+  const option = r.root.find((n) => n.type === "button" && n.props.role === "option" && text(n) === "Modpack");
+  await TR.act(async () => option.props.onClick());
+  assert.strictEqual(r.root.findAll((n) => n.props?.role === "listbox").length, 0); // closed after picking
+  assert.ok(text(r.root.find((n) => n.type === "button" && n.props.title === "Category")).includes("Modpack"));
+  const sortButton = r.root.find((n) => n.type === "button" && n.props.title === "Sort");
+  await TR.act(async () => sortButton.props.onClick());
+  await TR.act(async () => r.root.find((n) => n.props.role === "option" && text(n) === "Name").props.onClick());
+  assert.ok(text(r.root.find((n) => n.type === "button" && n.props.title === "Sort")).includes("Name"));
   console.log("category Modpack:", text(r.root.findAll((n) => n.type === "span" && /mods on/.test(text(n)))[0]));
   console.log("page ok");
   console.log("ALL OK");
