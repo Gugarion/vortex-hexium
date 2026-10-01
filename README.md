@@ -1,5 +1,7 @@
 # Hexium Support for Vortex
 
+![Hexium Support for Vortex](media/promo-1920x1080.png)
+
 *Unofficial. Not made by or affiliated with Hexium or Nexus Mods.*
 
 A [Vortex](https://www.nexusmods.com/about/vortex/) extension that browses, installs and updates mods from
