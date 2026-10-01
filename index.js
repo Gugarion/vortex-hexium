@@ -1,5 +1,5 @@
 "use strict";
-// Hexium (hexium.gg) support for Vortex: install mods from Hexium, link mods installed from a manually
+// Hexium (hexium.gg) support for Vortex: browse and install mods from Hexium, link mods installed from a manually
 // downloaded Hexium zip, and answer Vortex's own "Check for Updates" / update icon for them.
 // Hexium's API is Thunderstore-shaped (/api/experimental/package/<namespace>/<name>/[<version>/]).
 
@@ -440,24 +440,6 @@ function offerAdoption(api, gameId) {
   });
 }
 
-async function installDialog(api) {
-  const gameId = activeGame(api);
-  if (!communityOf(gameId)) { notify(api, "warning", "Hexium: the active game has no Hexium community (supported: Valheim)."); return; }
-  const res = await api.showDialog("question", "Install from Hexium", {
-    text: "Paste a Hexium mod page link, a gale://install/hexium/... link, Namespace/Name, or a dependency string (Namespace-Name-1.2.3). " +
-      "Without a version, the newest is installed.",
-    input: [{ id: "ref", type: "text", label: "Mod", value: "", placeholder: `${baseUrl(gameId)}/mods/Author/ModName` }],
-  }, [{ label: "Cancel" }, { label: "Install", default: true }]);
-  if (res.action !== "Install") return;
-  const ref = parseRef(res.input.ref);
-  if (!ref) { notify(api, "warning", `Hexium: couldn't read "${res.input.ref}" as a mod link.`); return; }
-  try {
-    await installFromHexium(api, gameId, ref);
-  } catch (err) {
-    notify(api, "error", `Installing ${ref.namespace}/${ref.name} from Hexium failed: ${err.message ?? err}`, undefined, 10000);
-  }
-}
-
 // ---------- registration ----------
 
 function main(context) {
@@ -509,8 +491,6 @@ function main(context) {
       openUrl: (url) => util.opn(url).catch(() => undefined),
     }),
   });
-
-  context.registerAction("mod-icons", 300, "download", {}, "Install from Hexium", () => { void installDialog(api); }, forActiveGame);
 
   context.registerAction("mods-action-icons", 300, "link", {}, "Link to Hexium",
     (ids) => { void linkDialog(api, activeGame(api), ids[0]); },
