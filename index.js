@@ -27,7 +27,7 @@ const THUNDERSTORE_TYPE = "thunderstore-valheim";
 const HEXAGON_MDI = "M21,16.5C21,16.88 20.79,17.21 20.47,17.38L12.57,21.82C12.41,21.94 12.21,22 12,22C11.79,22 11.59,21.94 11.43,21.82L3.53,17.38C3.21,17.21 3,16.88 3,16.5V7.5C3,7.12 3.21,6.79 3.53,6.62L11.43,2.18C11.59,2.06 11.79,2 12,2C12.21,2 12.41,2.06 12.57,2.18L20.47,6.62C20.79,6.79 21,7.12 21,7.5V16.5M12,4.15L5,8.09V15.91L12,19.85L19,15.91V8.09L12,4.15ZM7.4,7.5 L11,7.5 L11,8.7 L10.4,8.7 L10.4,11 L13.6,11 L13.6,8.7 L13,8.7 L13,7.5 L16.6,7.5 L16.6,8.7 L16,8.7 L16,15.3 L16.6,15.3 L16.6,16.5 L13,16.5 L13,15.3 L13.6,15.3 L13.6,13 L10.4,13 L10.4,15.3 L11,15.3 L11,16.5 L7.4,16.5 L7.4,15.3 L8,15.3 L8,8.7 L7.4,8.7Z";
 // Set in main(); lets communityOf read Vortex's game names.
 let apiRef;
-const UA = "Vortex-Hexium/1.2.0 (+https://github.com/Gugarion/vortex-hexium)";
+const UA = "Vortex-Hexium/1.3.0 (+https://github.com/Gugarion/vortex-hexium)";
 
 const vortexGameName = (gameId) => {
   try { return apiRef?.getState().session?.gameMode?.known?.find((g) => g.id === gameId)?.name; } catch { return undefined; }
@@ -37,6 +37,9 @@ const communityOf = (gameId) => games.communityFor(gameId, vortexGameName(gameId
 const communityName = (gameId) => games.communityFor(gameId, vortexGameName(gameId))?.name;
 const baseUrl = (gameId) => `https://${communityOf(gameId)}.hexium.gg`;
 const pageUrl = (gameId, namespace, name) => `${baseUrl(gameId)}/mods/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}`;
+const openOnHexium = (gameId, mod) => { const { namespace, name } = splitId(mod.attributes.modId); util.opn(pageUrl(gameId, namespace, name)).catch(() => undefined); };
+// Icon set file hexium.svg (symbol "icon-hexium", the hexagon below), for the right-click action.
+const ICON = "hexium";
 
 // ---------- http ----------
 
@@ -509,6 +512,11 @@ function main(context) {
     }),
   });
 
+  // Right-click → Open on Hexium (the Thunderstore extension's "Open on Thunderstore" for our mods).
+  context.registerAction("mods-action-icons", 999, ICON, {}, "Open on Hexium",
+    (ids) => { const g = activeGame(api), mod = modsOf(api, g)[ids[0]]; if (isHexium(mod)) openOnHexium(g, mod); },
+    (ids) => forActiveGame() && ids.length === 1 && isHexium(modsOf(api, activeGame(api))[ids[0]]));
+
   context.registerAction("mods-action-icons", 300, "link", {}, "Link to Hexium",
     (ids) => { void linkDialog(api, activeGame(api), ids[0]); },
     (ids) => forActiveGame() && ids.length === 1 && !isHexium(modsOf(api, activeGame(api))[ids[0]]));
@@ -518,6 +526,7 @@ function main(context) {
     (ids) => forActiveGame() && ids.every((id) => isHexium(modsOf(api, activeGame(api))[id])));
 
   context.once(() => {
+    void util.installIconSet?.(ICON, path.join(__dirname, "hexium.svg"))?.catch?.(() => undefined);
     void games.refresh(getJson);
     api.onAsync("check-mods-version", (gameId, mods) => checkUpdates(api, gameId, mods));
 

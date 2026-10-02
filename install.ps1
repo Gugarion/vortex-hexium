@@ -2,5 +2,5 @@
 $src = $PSScriptRoot
 $dst = Join-Path $env:APPDATA 'Vortex\plugins\Hexium'
 New-Item -ItemType Directory -Force $dst | Out-Null
-Copy-Item (Join-Path $src '*.js'), (Join-Path $src 'info.json') $dst -Force
+Copy-Item (Join-Path $src '*.js'), (Join-Path $src 'info.json'), (Join-Path $src 'hexium.svg') $dst -Force
 Write-Output "Installed to $dst - restart Vortex to load it."

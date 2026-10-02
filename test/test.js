@@ -158,6 +158,15 @@ const context = {
   // open mod page
   for (const fn of listeners["open-mod-page"]) fn("valheim", "Smoothbrain/CreatureLevelAndLootControl", "hexium");
   assert.deepStrictEqual(opened, ["https://valheim.hexium.gg/mods/Smoothbrain/CreatureLevelAndLootControl"]);
+  // right-click → Open on Hexium: only for one linked Hexium mod
+  const openAction = registered.actions.find((a) => a[4] === "Open on Hexium");
+  assert.ok(openAction);
+  assert.strictEqual(openAction[6](["old-cllc"]), true);
+  assert.strictEqual(openAction[6](["ts-mod"]), false);
+  assert.strictEqual(openAction[6](["old-cllc", "manual-cllc"]), false);
+  opened.length = 0;
+  openAction[5](["old-cllc"]);
+  assert.deepStrictEqual(opened, ["https://valheim.hexium.gg/mods/Smoothbrain/CreatureLevelAndLootControl"]);
   console.log("open page ok");
 
   // ---- layout ----

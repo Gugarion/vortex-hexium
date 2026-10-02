@@ -15,7 +15,7 @@ A [Vortex](https://www.nexusmods.com/about/vortex/) extension that browses, inst
 - **Updates through Vortex's own Check for Updates**: outdated Hexium mods get the normal update icon.
 - **Hand-downloaded zips**: a Hexium zip dragged into Vortex is recognised by its `manifest.json` and linked to
   Hexium for update checks. Right-click → *Link to Hexium* / *Unlink from Hexium* for the rest.
-- **Open mod page** goes to the Hexium page.
+- **Open on Hexium** (right-click a Hexium mod) and **Open mod page** go to the mod's Hexium page.
 - Own installer and mod type ("Hexium"): `BepInEx/plugins/<DLL name>/`, `config` → `BepInEx/config`,
   `patchers` → `BepInEx/patchers`, the same places as the Thunderstore extension for Vortex. BepInEx itself is
   left to the game's own Vortex extension.
@@ -29,7 +29,7 @@ extension. Kenshi and Primordialis are left out for now: their mods aren't BepIn
 ## Install
 
 From Nexus Mods with Vortex, or drop a release zip onto Vortex's Extensions page and restart Vortex.
-By hand: copy `info.json` and the `.js` files into `%APPDATA%\Vortex\plugins\Hexium` (`install.ps1` does that).
+By hand: copy `info.json`, `hexium.svg` and the `.js` files into `%APPDATA%\Vortex\plugins\Hexium` (`install.ps1` does that).
 
 ## Files
 
