@@ -273,6 +273,55 @@ const context = {
   await TR.act(async () => r.root.find((n) => n.props.role === "option" && text(n) === "Name").props.onClick());
   assert.ok(text(r.root.find((n) => n.type === "button" && n.props.title === "Sort")).includes("Name"));
   console.log("category Modpack:", text(r.root.findAll((n) => n.type === "span" && /mods on/.test(text(n)))[0]));
+
+  // paging: the section fills Vortex's body container absolutely so it scrolls by itself
+  const section = r.root.find((n) => n.type === "section");
+  assert.strictEqual(section.props.style.position, "absolute");
+  assert.strictEqual(section.props.style.overflowY, "auto");
+  await TR.act(async () => { r.update(React.createElement(Page, opts.props())); });
+  const catAll = r.root.find((n) => n.type === "button" && n.props.title === "Category");
+  await TR.act(async () => catAll.props.onClick());
+  await TR.act(async () => r.root.find((n) => n.props.role === "option" && text(n) === "All categories").props.onClick());
+  const total = Number(text(r.root.findAll((n) => n.type === "span" && /mods on/.test(text(n)))[0]).split(" ")[0].replace(/,/g, ""));
+  const navs = () => r.root.findAll((n) => n.type === "nav");
+  const pageOf = () => text(navs()[0].find((n) => n.type === "span" && /^Page \d+ of \d+$/.test(text(n))));
+  assert.strictEqual(navs().length, 2); // above and below the list
+  assert.strictEqual(pageOf(), `Page 1 of ${Math.ceil(total / 20)}`);
+  const names = () => cards().map((c) => text(c.findAll((n) => n.props.className?.includes("font-semibold"))[0]));
+  const first = names();
+  await TR.act(async () => navs()[1].find((n) => n.props.title === "Next page").props.onClick());
+  assert.strictEqual(pageOf(), `Page 2 of ${Math.ceil(total / 20)}`);
+  assert.notDeepStrictEqual(names(), first);
+  assert.strictEqual(cards().length, 20);
+  await TR.act(async () => navs()[0].find((n) => n.props.title === "Page 1").props.onClick());
+  assert.deepStrictEqual(names(), first);
+  // jump box (7+ pages): bad input resets, good input jumps
+  const jumpInput = () => navs()[0].find((n) => n.type === "input");
+  const jumpForm = () => navs()[0].find((n) => n.type === "form");
+  const last = Math.ceil(total / 20);
+  await TR.act(async () => jumpInput().props.onChange({ target: { value: String(last + 5) } }));
+  await TR.act(async () => jumpForm().props.onSubmit({ preventDefault() {} }));
+  assert.strictEqual(pageOf(), `Page 1 of ${last}`);
+  assert.strictEqual(jumpInput().props.value, "1");
+  await TR.act(async () => jumpInput().props.onChange({ target: { value: String(last) } }));
+  await TR.act(async () => jumpForm().props.onSubmit({ preventDefault() {} }));
+  assert.strictEqual(pageOf(), `Page ${last} of ${last}`);
+  assert.strictEqual(cards().length, total - (last - 1) * 20);
+  assert.ok(navs()[0].find((n) => n.props.title === "Next page").props.disabled);
+  // per page: 50 -> back to page 1, fewer pages
+  await TR.act(async () => r.root.find((n) => n.type === "button" && n.props.title === "Mods per page").props.onClick());
+  await TR.act(async () => r.root.find((n) => n.props.role === "option" && text(n) === "50 per page").props.onClick());
+  assert.strictEqual(cards().length, Math.min(50, total));
+  assert.strictEqual(pageOf(), `Page 1 of ${Math.ceil(total / 50)}`);
+  // a filter change goes back to page 1
+  await TR.act(async () => navs()[0].find((n) => n.props.title === "Next page").props.onClick());
+  await TR.act(async () => r.root.find((n) => n.type === "input" && n.props.type === "search").props.onChange({ target: { value: "a" } }));
+  assert.ok(navs().length === 0 || /^Page 1 of/.test(pageOf()));
+  console.log(`paging ok (${total} mods, ${last} pages of 20)`);
+  // Pager unit: hidden with one page, numbers around the current page
+  const { Pager, pageNumbers } = require("../page.js");
+  assert.strictEqual(TR.create(React.createElement(Pager, { cur: 1, count: 1, onPage: () => {} })).toJSON(), null);
+  assert.deepStrictEqual(pageNumbers(10, 30), [1, "…", 9, 10, 11, "…", 30]);
   console.log("page ok");
 
   // ---- other Hexium games ----

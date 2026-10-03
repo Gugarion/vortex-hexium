@@ -1,5 +1,5 @@
 "use strict";
-// "Browse Hexium" main page: search, category filter, sort, paging, Install / Update / Installed per mod.
+// "Browse Hexium" main page: search, category filter, sort, paging (20/50/100 per page, pager above and below), Install / Update / Installed per mod.
 // Styled with the same Vortex classes the Thunderstore page uses.
 
 const React = require("react");
@@ -8,7 +8,7 @@ try { vortex = require("vortex-api"); } catch { vortex = require("@nexusmods/vor
 const Icon = vortex.Icon;
 const h = React.createElement;
 
-const PAGE_SIZE = 20;
+const PAGE_SIZES = [20, 50, 100];
 const SORTS = [
   { value: "popular", label: "Most Downloaded" },
   { value: "updated", label: "Recently Updated" },
@@ -77,6 +77,41 @@ function Dropdown({ value, options, onChange, title }) {
       : null);
 }
 
+// Page arrows + numbers, "Page x of y", and a jump box once there are 7+ pages. Drawn above and below the list.
+function Pager({ cur, count, onPage, label }) {
+  const [jump, setJump] = React.useState(String(cur));
+  React.useEffect(() => setJump(String(cur)), [cur]);
+  if (count <= 1) return null;
+  return h("nav", { className: "nxm-pagination flex-wrap", "aria-label": label },
+    h("div", { className: "nxm-pagination-items" },
+      h("button", { type: "button", className: "nxm-pagination-arrow", disabled: cur === 1, onClick: () => onPage(cur - 1), title: "Previous page" },
+        h(Icon, { name: "collection-previous", className: "size-4" })),
+      ...pageNumbers(cur, count).map((n, i) => (n === "…"
+        ? h("span", { key: `e${i}`, className: "nxm-pagination-separator" }, "...")
+        : h("button", {
+          key: n, type: "button", "aria-current": n === cur ? "true" : "false", title: `Page ${n}`,
+          className: `nxm-pagination-number ${n === cur ? "nxm-pagination-number-active" : ""}`, onClick: () => onPage(n),
+        }, n))),
+      h("button", { type: "button", className: "nxm-pagination-arrow", disabled: cur === count, onClick: () => onPage(cur + 1), title: "Next page" },
+        h(Icon, { name: "collection-next", className: "size-4" }))),
+    h("span", { className: "text-neutral-subdued text-body-sm" }, `Page ${cur} of ${count}`),
+    count >= 7
+      ? h("form", {
+        className: "nxm-pagination-page flex items-center gap-x-2", "aria-label": "Jump to page",
+        onSubmit: (e) => {
+          e.preventDefault();
+          const n = Number.parseInt(jump, 10);
+          if (Number.isInteger(n) && n >= 1 && n <= count) onPage(n);
+          else setJump(String(cur));
+        },
+      },
+      h("span", { className: "nxm-pagination-page-label" }, "Page"),
+      h("input", { type: "number", min: 1, max: count, value: jump, "aria-label": "Jump to page",
+        onChange: (e) => setJump(e.target.value), className: "nxm-input nxm-pagination-page-input" }),
+      h("button", { type: "submit", className: "nxm-button nxm-button-neutral nxm-button-moderate nxm-button-sm" }, "Go"))
+      : null);
+}
+
 function HexiumPage(props) {
   const { getGameId, communityOf, communityName, loadPackages, getInstalled, install, compareVersions, openUrl } = props;
   const gameId = getGameId();
@@ -90,6 +125,8 @@ function HexiumPage(props) {
   const [sort, setSort] = React.useState("popular");
   const [showDeprecated, setShowDeprecated] = React.useState(false);
   const [page, setPage] = React.useState(1);
+  const [pageSize, setPageSize] = React.useState(PAGE_SIZES[0]);
+  const scroller = React.useRef(null);
   const [refresh, setRefresh] = React.useState(0);
   const [busy, setBusy] = React.useState({});
   const [done, setDone] = React.useState({});
@@ -107,7 +144,9 @@ function HexiumPage(props) {
     return () => { cancelled = true; };
   }, [gameId, community, refresh]);
 
-  React.useEffect(() => setPage(1), [query, category, sort, showDeprecated]);
+  React.useEffect(() => setPage(1), [query, category, sort, showDeprecated, pageSize]);
+  // a new page starts at the top of the list
+  React.useEffect(() => { if (scroller.current) scroller.current.scrollTop = 0; }, [page, pageSize]);
 
   if (community === undefined) {
     return h("section", { className: "h-full overflow-y-auto p-6" },
@@ -129,9 +168,10 @@ function HexiumPage(props) {
       if (sort === "new") return b.created - a.created;
       return b.downloads - a.downloads || b.rating - a.rating;
     });
-  const pageCount = Math.max(1, Math.ceil(shown.length / PAGE_SIZE));
+  const pageCount = Math.max(1, Math.ceil(shown.length / pageSize));
   const cur = Math.min(page, pageCount);
-  const visible = shown.slice((cur - 1) * PAGE_SIZE, cur * PAGE_SIZE);
+  const visible = shown.slice((cur - 1) * pageSize, cur * pageSize);
+  const pager = (label) => h(Pager, { cur, count: pageCount, onPage: setPage, label });
 
   const doInstall = async (p) => {
     setBusy((b) => ({ ...b, [p.key]: true }));
@@ -187,7 +227,14 @@ function HexiumPage(props) {
       p.url ? h("button", { type: "button", className: btn("neutral nxm-button-weak"), onClick: () => openUrl(p.url), title: `Open ${p.name} on Hexium` },
         icon("launch"), "View Page") : null));
 
-  return h("section", { className: "h-full overflow-y-auto pt-6" },
+  // Vortex puts the page in .mainpage-body-container (flex: 1 1 0, position: relative). A child in the normal
+  // flow makes that container grow to the whole list (flex min-height: auto), so h-full never limits the height,
+  // nothing scrolls and the pager below the list is out of view. Filling the container absolutely gives the
+  // section a fixed height to scroll in.
+  return h("section", {
+    ref: scroller, className: "absolute inset-0 overflow-y-auto pt-6",
+    style: { position: "absolute", top: 0, right: 0, bottom: 0, left: 0, overflowY: "auto" },
+  },
     h("div", { className: "space-y-3 p-6" },
       h("div", { className: "flex flex-wrap items-center gap-2" },
         h("input", { type: "search", value: query, placeholder: "Search Hexium mods...", onChange: (e) => setQuery(e.target.value), className: "nxm-input max-w-60" }),
@@ -196,27 +243,20 @@ function HexiumPage(props) {
         h(Dropdown, { title: "Sort", value: sort, onChange: setSort, options: SORTS }),
         h("label", { className: "flex items-center gap-x-1 text-body-sm text-neutral-moderate" },
           h("input", { type: "checkbox", checked: showDeprecated, onChange: (e) => setShowDeprecated(e.target.checked) }), "Show deprecated"),
+        h(Dropdown, { title: "Mods per page", value: pageSize, onChange: setPageSize,
+          options: PAGE_SIZES.map((n) => ({ value: n, label: `${n} per page` })) }),
         h("button", { type: "button", className: iconBtn, title: "Refresh", onClick: () => setRefresh((r) => r + 1) }, icon("refresh")),
         h("span", { className: "text-translucent-moderate text-body-sm" }, `${shown.length.toLocaleString("en-US")} ${gameLabel} mods on ${community}.hexium.gg`)),
       loading ? h("div", { className: "p-5 text-center text-neutral-subdued text-body-sm" }, "Loading Hexium mods …") : null,
       error !== undefined ? h("div", { className: "p-5 text-center text-danger-strong text-body-sm", role: "alert" }, `Could not load Hexium's mod list: ${error}`) : null,
       installError !== undefined ? h("div", { className: "p-2.5 text-danger-strong text-body-sm", role: "alert" }, `Installation failed: ${installError}`) : null,
+      !loading && error === undefined ? pager("Pages (top)") : null,
       !loading && error === undefined
         ? h("div", { className: "grid grid-cols-[repeat(auto-fit,minmax(26rem,1fr))] gap-4" },
           visible.length === 0 ? h("div", { className: "p-5 text-center text-neutral-subdued text-body-sm" }, "No mods match your search.") : null,
           ...visible.map(card))
         : null,
-      pageCount > 1
-        ? h("nav", { className: "nxm-pagination" },
-          h("div", { className: "nxm-pagination-items" },
-            h("button", { type: "button", className: "nxm-pagination-arrow", disabled: cur === 1, onClick: () => setPage(cur - 1), title: "Previous page" },
-              h(Icon, { name: "collection-previous", className: "size-4" })),
-            ...pageNumbers(cur, pageCount).map((n, i) => (n === "…"
-              ? h("span", { key: `e${i}`, className: "nxm-pagination-separator" }, "...")
-              : h("button", { key: n, type: "button", className: `nxm-pagination-number ${n === cur ? "nxm-pagination-number-active" : ""}`, onClick: () => setPage(n) }, n))),
-            h("button", { type: "button", className: "nxm-pagination-arrow", disabled: cur === pageCount, onClick: () => setPage(cur + 1), title: "Next page" },
-              h(Icon, { name: "collection-next", className: "size-4" }))))
-        : null));
+      !loading && error === undefined ? pager("Pages") : null));
 }
 
-module.exports = { HexiumPage, Dropdown, view };
+module.exports = { HexiumPage, Dropdown, Pager, view, pageNumbers };

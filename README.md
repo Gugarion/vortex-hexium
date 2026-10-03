@@ -10,8 +10,8 @@ A [Vortex](https://www.nexusmods.com/about/vortex/) extension that browses, inst
 
 ## Features
 
-- **Browse Hexium** page: search, category filter, sorting, Install / Update / Installed on every mod, and the
-  mods each one needs.
+- **Browse Hexium** page: search, category filter, sorting, pages of 20 / 50 / 100 mods (page buttons above and
+  below the list, jump to a page), Install / Update / Installed on every mod, and the mods each one needs.
 - **Updates through Vortex's own Check for Updates**: outdated Hexium mods get the normal update icon.
 - **Hand-downloaded zips**: a Hexium zip dragged into Vortex is recognised by its `manifest.json` and linked to
   Hexium for update checks. Right-click → *Link to Hexium* / *Unlink from Hexium* for the rest.

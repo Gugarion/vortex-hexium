@@ -1,6 +1,6 @@
 {
   "name": "Hexium",
   "author": "gugarion",
-  "version": "1.3.0",
+  "version": "1.4.0",
   "description": "Unofficial. Browse, install and update mods from Hexium (hexium.gg) for every Hexium game whose mods use BepInEx, with Vortex's own Check for Updates."
 }

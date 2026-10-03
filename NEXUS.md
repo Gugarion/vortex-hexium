@@ -15,7 +15,7 @@ Source code (MIT): [url=https://github.com/Gugarion/vortex-hexium]github.com/Gug
 
 [size=4][b]Features[/b][/size]
 [list]
-[*][b]Browse Hexium[/b] page in the left menu (for any supported game): search, category filter, sorting (most downloaded, recently updated, newest, name), Install / Update / Installed on every mod, and the other mods each one needs.
+[*][b]Browse Hexium[/b] page in the left menu (for any supported game): search, category filter, sorting (most downloaded, recently updated, newest, name), pages of 20 / 50 / 100 mods with a jump-to-page box, Install / Update / Installed on every mod, and the other mods each one needs.
 [*][b]Updates through Vortex's own Check for Updates[/b]: outdated Hexium mods get the normal update icon; clicking it (or Update All) installs the new version.
 [*][b]Zips you downloaded by hand[/b]: drag a Hexium zip into Vortex and it is recognised (by its manifest) and linked to Hexium for update checks.
 [*][b]Right-click → Link to Hexium / Unlink from Hexium[/b] for mods it can't recognise on its own.
